@@ -2,28 +2,28 @@
 import fetch from 'node-fetch';
 
 export default async function handler(req, res) {
-    // 1. Setup Headers for CORS (Security)
+    // 1. Setup Headers for CORS
     res.setHeader('Access-Control-Allow-Credentials', true);
-    res.setHeader('Access-Control-Allow-Origin', '*'); // Allow any frontend to call this
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'OPTIONS,POST');
     res.setHeader(
         'Access-Control-Allow-Headers',
-        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+        'Content-Type, Authorization, X-Requested-With'
     );
 
-    // Handle OPTIONS request (Browser pre-flight check)
     if (req.method === 'OPTIONS') {
         res.status(200).end();
         return;
     }
 
-    // 2. Security Check (API Key)
+    // 2. Security Check
+    // We read the key from the environment variable provided in Vercel
     const API_KEY = process.env.OPENAI_API_KEY;
+
     if (!API_KEY) {
-        return res.status(500).json({ error: "Server Configuration Error: Missing API Key" });
+        return res.status(500).json({ error: "Server Error: Missing API Key" });
     }
 
-    // 3. Only allow POST requests
     if (req.method !== 'POST') {
         return res.status(405).json({ error: "Method Not Allowed" });
     }
@@ -31,32 +31,36 @@ export default async function handler(req, res) {
     try {
         const { message } = req.body;
 
-        // 4. Call OpenAI API
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        // --- SWITCHED TO GEMINI API (Based on your Key format 'AIza...') ---
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
             method: "POST",
             headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${API_KEY}`
+                "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                model: "gpt-3.5-turbo",
-                messages: [
-                    { role: "system", content: "You are a helpful AI Business Sales Agent. Respond in short, sales-focused messages." },
-                    { role: "user", content: message }
-                ]
+                contents: [{
+                    parts: [{
+                        text: `You are a helpful AI Business Sales Agent. Respond in short, sales-focused messages to this user: ${message}`
+                    }]
+                }]
             })
         });
 
         const data = await response.json();
 
-        // 5. Send Result back to Frontend
-        if (data.error) throw new Error(data.error.message);
-        const botReply = data.choices[0].message.content;
+        // Check for Gemini specific errors
+        if (data.error) {
+            throw new Error(data.error.message || "Gemini API Error");
+        }
+
+        // Parse Gemini Response
+        const botReply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I couldn't generate a response.";
 
         res.status(200).json({ reply: botReply });
 
     } catch (error) {
         console.error("API Error:", error);
-        res.status(500).json({ reply: "Server connection failed." });
+        res.status(500).json({ reply: "Connection failed. Please check API Key." });
     }
 }
